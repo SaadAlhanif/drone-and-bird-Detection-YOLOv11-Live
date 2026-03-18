@@ -6,7 +6,6 @@ import shutil
 import streamlit as st
 import cv2
 import imageio_ffmpeg
-import gdown
 from ultralytics import YOLO
 
 
@@ -29,29 +28,17 @@ video {
 
 
 # =========================
-# Model (Auto download from Drive)
-# =========================
+# Model (download from GitHub)
 MODEL_PATH = "best.pt"
-FILE_ID = "1Bd0EvtNsagapzoDQ1zMPKePceyjlJ6oJ"
-DRIVE_URL = f"https://drive.google.com/uc?id={FILE_ID}"
 
 @st.cache_resource
 def load_model():
-    if not os.path.exists(MODEL_PATH):
-        with st.spinner("⬇️ جاري تحميل المودل من Google Drive..."):
-            gdown.download(DRIVE_URL, MODEL_PATH, fuzzy=True, quiet=False)
-
-    if not os.path.exists(MODEL_PATH):
-        st.error("❌ فشل تحميل best.pt من Google Drive")
-        st.stop()
-
     return YOLO(MODEL_PATH)
 
 model = load_model()
 
 names = model.names if isinstance(model.names, dict) else {i: n for i, n in enumerate(model.names)}
 ALLOWED = {"drone", "bird"}
-
 
 # =========================
 # Controls (السلايدر)
