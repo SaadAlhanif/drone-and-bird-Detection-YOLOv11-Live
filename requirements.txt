@@ -1,5 +1,5 @@
-streamlit==1.42.0
-ultralytics==8.4.11
-opencv-python-headless==4.10.0.84
-numpy==1.26.4
-imageio-ffmpeg
+streamlit
+ultralytics
+opencv-python-headless
+streamlit-webrtc
+av
