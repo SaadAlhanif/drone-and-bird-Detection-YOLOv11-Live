@@ -1,134 +1,108 @@
-import tempfile
-from pathlib import Path
-
-import av
+import os
 import cv2
-import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+import time
+import base64
+import numpy as np
+from flask import Flask, render_template, request, jsonify, send_from_directory
 from ultralytics import YOLO
 
-st.set_page_config(page_title="Drone & Bird Detection", layout="wide")
-st.title("🛸 Drone & Bird Detection")
+app = Flask(__name__)
 
-# =========================
-# Load model once
-# =========================
-MODEL_PATH = "best.pt"
+UPLOAD_FOLDER = "static/uploads"
+RESULT_FOLDER = "static/results"
 
-@st.cache_resource
-def load_model():
-    return YOLO(MODEL_PATH)
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(RESULT_FOLDER, exist_ok=True)
 
-model = load_model()
+model = YOLO("best.pt")
 
-# =========================
-# Sidebar settings
-# =========================
-st.sidebar.header("Settings")
-conf = st.sidebar.slider("Confidence", 0.05, 0.95, 0.30, 0.05)
-imgsz = st.sidebar.selectbox("Image Size", [320, 416, 512, 640], index=1)
 
-mode = st.radio(
-    "Choose input mode:",
-    ["Live Camera", "Upload Video"],
-    horizontal=True
-)
+@app.route("/")
+def home():
+    return render_template("index.html")
 
-# =========================
-# Helper function
-# =========================
-def detect_and_annotate(frame):
-    results = model.predict(frame, conf=conf, imgsz=imgsz, verbose=False)
+
+@app.route("/upload_video", methods=["POST"])
+def upload_video():
+    if "video" not in request.files:
+        return "No video uploaded", 400
+
+    file = request.files["video"]
+
+    if file.filename == "":
+        return "No selected video", 400
+
+    filename = f"{int(time.time())}_{file.filename}"
+    input_path = os.path.join(UPLOAD_FOLDER, filename)
+    output_filename = f"result_{filename}"
+    output_path = os.path.join(RESULT_FOLDER, output_filename)
+
+    file.save(input_path)
+
+    cap = cv2.VideoCapture(input_path)
+    if not cap.isOpened():
+        return "Could not open uploaded video", 400
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps <= 0:
+        fps = 25
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        results = model(frame, conf=0.3, imgsz=416, verbose=False)
+        annotated = results[0].plot()
+        out.write(annotated)
+
+    cap.release()
+    out.release()
+
+    return render_template(
+        "index.html",
+        uploaded_video="/" + input_path,
+        result_video="/" + output_path
+    )
+
+
+@app.route("/process_frame", methods=["POST"])
+def process_frame():
+    data = request.get_json()
+
+    if not data or "image" not in data:
+        return jsonify({"error": "No image received"}), 400
+
+    image_data = data["image"]
+
+    if "," in image_data:
+        image_data = image_data.split(",")[1]
+
+    image_bytes = base64.b64decode(image_data)
+    np_arr = np.frombuffer(image_bytes, np.uint8)
+    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+    if frame is None:
+        return jsonify({"error": "Invalid frame"}), 400
+
+    results = model(frame, conf=0.3, imgsz=416, verbose=False)
     annotated = results[0].plot()
-    return annotated
 
-# =========================
-# Live Camera Mode
-# =========================
-if mode == "Live Camera":
-    st.subheader("📷 Live Camera")
+    _, buffer = cv2.imencode(".jpg", annotated)
+    encoded_image = base64.b64encode(buffer).decode("utf-8")
 
-    class VideoProcessor(VideoTransformerBase):
-        def recv(self, frame):
-            img = frame.to_ndarray(format="bgr24")
-            annotated = detect_and_annotate(img)
-            return av.VideoFrame.from_ndarray(annotated, format="bgr24")
+    return jsonify({"image": encoded_image})
 
-    webrtc_streamer(
-        key="drone-live",
-        video_processor_factory=VideoProcessor,
-        media_stream_constraints={"video": True, "audio": False},
-        async_processing=True,
-    )
 
-# =========================
-# Upload Video Mode
-# =========================
-else:
-    st.subheader("🎥 Upload Video")
+@app.route("/static/<path:filename>")
+def static_files(filename):
+    return send_from_directory("static", filename)
 
-    uploaded_file = st.file_uploader(
-        "Upload a video",
-        type=["mp4", "mov", "avi", "mkv"]
-    )
 
-    if uploaded_file is None:
-        st.info("Upload a video to start.")
-        st.stop()
-
-    # Save uploaded video temporarily
-    temp_input = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-    temp_input.write(uploaded_file.read())
-    temp_input_path = temp_input.name
-    temp_input.close()
-
-    st.video(temp_input_path)
-
-    if st.button("Start Detection"):
-        cap = cv2.VideoCapture(temp_input_path)
-
-        if not cap.isOpened():
-            st.error("Could not open uploaded video.")
-            st.stop()
-
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        if fps <= 0:
-            fps = 25
-
-        temp_output_path = str(Path(temp_input_path).with_name("output_detected.mp4"))
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        out = cv2.VideoWriter(temp_output_path, fourcc, fps, (width, height))
-
-        preview = st.empty()
-        progress_text = st.empty()
-
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        frame_num = 0
-
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            frame_num += 1
-            annotated = detect_and_annotate(frame)
-            out.write(annotated)
-
-            preview.image(annotated, channels="BGR", caption="Processing...")
-            progress_text.write(f"Processing frame {frame_num}/{total_frames}")
-
-        cap.release()
-        out.release()
-
-        st.success("Detection finished.")
-        st.video(temp_output_path)
-
-        with open(temp_output_path, "rb") as f:
-            st.download_button(
-                "Download Result",
-                data=f,
-                file_name="detected_output.mp4",
-                mime="video/mp4"
-            )
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=7860, debug=True)
