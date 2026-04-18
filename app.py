@@ -1,4 +1,170 @@
-annotated, detections = draw_custom_boxes(frame, results)
+import os
+import cv2
+import time
+import base64
+import sqlite3
+import numpy as np
+from datetime import datetime
+from flask import Flask, render_template, request, jsonify, send_from_directory
+from ultralytics import YOLO
+
+app = Flask(__name__)
+
+UPLOAD_FOLDER = "static/uploads"
+RESULT_FOLDER = "static/results"
+SNAPSHOT_FOLDER = "static/snapshots"
+DB_NAME = "detections.db"
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(RESULT_FOLDER, exist_ok=True)
+os.makedirs(SNAPSHOT_FOLDER, exist_ok=True)
+
+model = YOLO("best.pt")
+
+# يمنع تكرار حفظ نفس الدرون كل فريم
+last_saved_time_live = 0
+
+
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS detections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        object_type TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        detected_at TEXT NOT NULL,
+        image_path TEXT NOT NULL,
+        source TEXT NOT NULL
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def insert_detection(object_type, confidence, detected_at, image_path, source):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+    INSERT INTO detections (object_type, confidence, detected_at, image_path, source)
+    VALUES (?, ?, ?, ?, ?)
+    """, (object_type, confidence, detected_at, image_path, source))
+    conn.commit()
+    conn.close()
+
+
+def get_all_detections():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+    SELECT id, object_type, confidence, detected_at, image_path, source
+    FROM detections
+    ORDER BY id DESC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def draw_custom_boxes(frame, results):
+    """
+    Drone -> red
+    Bird  -> green
+    """
+    annotated = frame.copy()
+
+    if results[0].boxes is None:
+        return annotated, []
+
+    detections = []
+
+    for box in results[0].boxes:
+        cls_id = int(box.cls[0])
+        conf = float(box.conf[0])
+        class_name = str(model.names[cls_id]).lower()
+
+        x1, y1, x2, y2 = map(int, box.xyxy[0])
+
+        if class_name == "drone":
+            color = (0, 0, 255)  # red in BGR
+        elif class_name == "bird":
+            color = (0, 255, 0)  # green in BGR
+        else:
+            color = (255, 255, 0)
+
+        label = f"{class_name} {conf:.2f}"
+
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(
+            annotated,
+            label,
+            (x1, max(y1 - 10, 20)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            color,
+            2
+        )
+
+        detections.append({
+            "class_name": class_name,
+            "confidence": conf
+        })
+
+    return annotated, detections
+
+
+init_db()
+
+
+@app.route("/")
+def home():
+    return render_template("index.html")
+
+
+@app.route("/logs")
+def logs():
+    rows = get_all_detections()
+    return render_template("logs.html", detections=rows)
+
+
+@app.route("/upload_video", methods=["POST"])
+def upload_video():
+    if "video" not in request.files:
+        return "No video uploaded", 400
+
+    file = request.files["video"]
+    if file.filename == "":
+        return "No selected video", 400
+
+    filename = f"{int(time.time())}_{file.filename}"
+    input_path = os.path.join(UPLOAD_FOLDER, filename)
+    output_filename = f"result_{filename}"
+    output_path = os.path.join(RESULT_FOLDER, output_filename)
+
+    file.save(input_path)
+
+    cap = cv2.VideoCapture(input_path)
+    if not cap.isOpened():
+        return "Could not open uploaded video", 400
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps <= 0:
+        fps = 25
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+    last_saved_time_upload = 0
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        results = model(frame, conf=0.3, imgsz=416, verbose=False)
+        annotated, detections = draw_custom_boxes(frame, results)
 
         # نسجل فقط drone
         for det in detections:
@@ -91,5 +257,5 @@ def static_files(filename):
     return send_from_directory("static", filename)
 
 
-if name == "__main__":
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=7860, debug=True)
