@@ -131,7 +131,7 @@
             <div class="col">
                 <h3>Uploaded Video</h3>
                 <video controls>
-                    <source src="{{ uploaded_video }}">
+                    <source src="{{ url_for('static', filename=uploaded_video) }}">
                     Your browser does not support the video tag.
                 </video>
             </div>
@@ -141,14 +141,14 @@
             <div class="col">
                 <h3>Detection Result</h3>
                 <video controls>
-                    <source src="{{ result_video }}" type="video/mp4">
+                    <source src="{{ url_for('static', filename=result_video) }}" type="video/mp4">
                     Your browser does not support the video tag.
                 </video>
 
                 <br>
-                <a class="btn" href="{{ result_video }}" target="_blank">🔗 Open Video Directly</a>
+                <a class="btn" href="{{ url_for('static', filename=result_video) }}" target="_blank">🔗 Open Video Directly</a>
 
-                <p class="path-text">Path: {{ result_video }}</p>
+                <p class="path-text">Path: {{ url_for('static', filename=result_video) }}</p>
             </div>
             {% endif %}
         </div>
