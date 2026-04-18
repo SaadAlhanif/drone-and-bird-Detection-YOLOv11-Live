@@ -24,15 +24,21 @@
         }
 
         h1 {
-            margin-bottom: 20px;
+            margin-bottom: 10px;
         }
 
-        .section {margin-top: 30px;
+        p.note {
+            color: #555;
+            font-size: 14px;
+        }
+
+        .section {
+            margin-top: 30px;
             padding: 20px;
             border-top: 1px solid #ddd;
         }
 
-        button {
+        button, a.btn {
             padding: 10px 18px;
             margin: 8px;
             border: none;
@@ -40,9 +46,12 @@
             color: white;
             border-radius: 8px;
             cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 15px;
         }
 
-        button:hover {
+        button:hover, a.btn:hover {
             background: #0056b3;
         }
 
@@ -85,15 +94,32 @@
             }
         }
 
-        p.note {
-            color: #444;
+        .top-actions {
+            margin-bottom: 20px;
+        }
+
+        .small-text {
+            font-size: 13px;
+            color: #666;
+        }
+
+        .status-box {
+            margin-top: 10px;
             font-size: 14px;
+            color: #333;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🛸 Drone Detection System</h1>
+        <p class="note">
+            Live camera or uploaded video detection for drone and bird.
+        </p>
+
+        <div class="top-actions">
+            <a class="btn" href="/logs">View Drone Logs</a>
+        </div>
 
         <div class="section">
             <h2>Upload Video</h2>
@@ -136,6 +162,8 @@
             <button onclick="startCamera()">Start Camera</button>
             <button onclick="stopCamera()">Stop Camera</button>
 
+            <div class="status-box" id="cameraStatus">Camera is stopped.</div>
+
             <div class="row">
                 <div class="col">
                     <h3>Original Camera</h3>
@@ -149,6 +177,9 @@
             </div>
 
             <canvas id="canvas"></canvas>
+            <p class="small-text">
+                Drone = red box, Bird = green box.
+            </p>
         </div>
     </div>
 
@@ -156,7 +187,9 @@
         let video = document.getElementById("video");
         let canvas = document.getElementById("canvas");
         let output = document.getElementById("output");
+        let statusBox = document.getElementById("cameraStatus");
         let ctx = canvas.getContext("2d");
+
         let stream = null;
         let intervalId = null;
 
@@ -168,18 +201,23 @@
                 });
 
                 video.srcObject = stream;
+                statusBox.innerText = "Camera started. Live detection is running...";
 
                 if (intervalId) {
                     clearInterval(intervalId);
                 }
 
+                // كل 700ms يرسل frame للسيرفر
                 intervalId = setInterval(sendFrame, 700);
+
             } catch (error) {
+                statusBox.innerText = "Could not access camera.";
                 alert("Could not access camera: " + error);
             }
         }
 
-        function stopCamera() {if (intervalId) {
+        function stopCamera() {
+            if (intervalId) {
                 clearInterval(intervalId);
                 intervalId = null;
             }
@@ -191,6 +229,7 @@
 
             video.srcObject = null;
             output.src = "";
+            statusBox.innerText = "Camera is stopped.";
         }
 
         async function sendFrame() {
@@ -203,7 +242,7 @@
 
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            let imageData = canvas.toDataURL("image/jpeg", 0.8);
+            let imageData = canvas.toDataURL("image/jpeg", 0.6);
 
             try {
                 let response = await fetch("/process_frame", {
@@ -221,9 +260,9 @@
                 }
             } catch (error) {
                 console.error("Error sending frame:", error);
+                statusBox.innerText = "Live detection error.";
             }
         }
     </script>
 </body>
 </html>
-
