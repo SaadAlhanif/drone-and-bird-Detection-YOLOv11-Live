@@ -1,64 +1,28 @@
-import os
-import cv2
-import time
-import base64
-import numpy as np
-from flask import Flask, render_template, request, jsonify, send_from_directory
-from ultralytics import YOLO
+annotated, detections = draw_custom_boxes(frame, results)
 
-app = Flask(__name__)
+        # نسجل فقط drone
+        for det in detections:
+            if det["class_name"] == "drone":
+                current_time = time.time()
 
-UPLOAD_FOLDER = "static/uploads"
-RESULT_FOLDER = "static/results"
+                if current_time - last_saved_time_upload > 5:
+                    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                    image_name = f"upload_drone_{timestamp}.jpg"
+                    image_path = os.path.join(SNAPSHOT_FOLDER, image_name)
 
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(RESULT_FOLDER, exist_ok=True)
+                    cv2.imwrite(image_path, annotated)
 
-model = YOLO("best.pt")
+                    insert_detection(
+                        object_type="drone",
+                        confidence=det["confidence"],
+                        detected_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        image_path=image_path,
+                        source="upload"
+                    )
 
+                    last_saved_time_upload = current_time
+                break
 
-@app.route("/")
-def home():
-    return render_template("index.html")
-
-
-@app.route("/upload_video", methods=["POST"])
-def upload_video():
-    if "video" not in request.files:
-        return "No video uploaded", 400
-
-    file = request.files["video"]
-
-    if file.filename == "":
-        return "No selected video", 400
-
-    filename = f"{int(time.time())}_{file.filename}"
-    input_path = os.path.join(UPLOAD_FOLDER, filename)
-    output_filename = f"result_{filename}"
-    output_path = os.path.join(RESULT_FOLDER, output_filename)
-
-    file.save(input_path)
-
-    cap = cv2.VideoCapture(input_path)
-    if not cap.isOpened():
-        return "Could not open uploaded video", 400
-
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    if fps <= 0:
-        fps = 25
-
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        results = model(frame, conf=0.3, imgsz=416, verbose=False)
-        annotated = results[0].plot()
         out.write(annotated)
 
     cap.release()
@@ -73,13 +37,13 @@ def upload_video():
 
 @app.route("/process_frame", methods=["POST"])
 def process_frame():
-    data = request.get_json()
+    global last_saved_time_live
 
+    data = request.get_json()
     if not data or "image" not in data:
         return jsonify({"error": "No image received"}), 400
 
     image_data = data["image"]
-
     if "," in image_data:
         image_data = image_data.split(",")[1]
 
@@ -91,7 +55,30 @@ def process_frame():
         return jsonify({"error": "Invalid frame"}), 400
 
     results = model(frame, conf=0.3, imgsz=416, verbose=False)
-    annotated = results[0].plot()
+    annotated, detections = draw_custom_boxes(frame, results)
+
+    # نسجل فقط drone
+    for det in detections:
+        if det["class_name"] == "drone":
+            current_time = time.time()
+
+            if current_time - last_saved_time_live > 5:
+                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                image_name = f"live_drone_{timestamp}.jpg"
+                image_path = os.path.join(SNAPSHOT_FOLDER, image_name)
+
+                cv2.imwrite(image_path, annotated)
+
+                insert_detection(
+                    object_type="drone",
+                    confidence=det["confidence"],
+                    detected_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    image_path=image_path,
+                    source="live"
+                )
+
+                last_saved_time_live = current_time
+            break
 
     _, buffer = cv2.imencode(".jpg", annotated)
     encoded_image = base64.b64encode(buffer).decode("utf-8")
@@ -104,5 +91,5 @@ def static_files(filename):
     return send_from_directory("static", filename)
 
 
-if __name__ == "__main__":
+if name == "__main__":
     app.run(host="0.0.0.0", port=7860, debug=True)
