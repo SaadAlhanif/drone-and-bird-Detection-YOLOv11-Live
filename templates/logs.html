@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drone Detection Logs</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 0 12px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        a {
+            text-decoration: none;
+            color: white;
+            background: #007bff;
+            padding: 10px 16px;
+            border-radius: 8px;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: center;
+        }
+
+        th {
+            background: #007bff;
+            color: white;
+        }
+
+        img {
+            width: 120px;
+            border-radius: 8px;
+        }
+
+        .empty {
+            text-align: center;
+            color: #666;
+            margin-top: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Drone Detection Logs</h1>
+        <a href="/">⬅ Back to Home</a>
+
+        {% if detections %}
+        <table>
+            <tr>
+                <th>ID</th>
+                <th>Type</th>
+                <th>Confidence</th>
+                <th>Time</th>
+                <th>Source</th>
+                <th>Image</th>
+            </tr>
+
+            {% for row in detections %}
+            <tr>
+                <td>{{ row[0] }}</td>
+                <td>{{ row[1] }}</td>
+                <td>{{ "%.2f"|format(row[2]) }}</td>
+                <td>{{ row[3] }}</td>
+                <td>{{ row[5] }}</td>
+                <td><img src="/{{ row[4] }}" alt="snapshot"></td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <p class="empty">No drone detections recorded yet.</p>
+        {% endif %}
+    </div>
+</body>
+</html>
