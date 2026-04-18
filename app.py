@@ -21,7 +21,7 @@ os.makedirs(RESULT_FOLDER, exist_ok=True)
 os.makedirs(SNAPSHOT_FOLDER, exist_ok=True)
 
 # 🔥 تحميل الموديل تلقائي
-MODEL_URL = "https://drive.google.com/uc?id=PUT_YOUR_FILE_ID_HERE"
+MODEL_URL = "https://drive.google.com/file/d/1Bd0EvtNsagapzoDQ1zMPKePceyjlJ6oJ/view?usp=drive_link"
 
 if not os.path.exists("best.pt"):
     print("Downloading model from Google Drive...")
