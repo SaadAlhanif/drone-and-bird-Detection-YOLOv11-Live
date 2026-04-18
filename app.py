@@ -20,11 +20,10 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
 os.makedirs(SNAPSHOT_FOLDER, exist_ok=True)
 
-# 🔥 تحميل الموديل تلقائي
+# 🔥 رابط الموديل (حط ID حقك)
 MODEL_URL = "https://drive.google.com/file/d/1Bd0EvtNsagapzoDQ1zMPKePceyjlJ6oJ/view?usp=drive_link"
-
 if not os.path.exists("best.pt"):
-    print("Downloading model from Google Drive...")
+    print("Downloading model...")
     gdown.download(MODEL_URL, "best.pt", quiet=False)
 
 model = YOLO("best.pt")
@@ -68,10 +67,8 @@ def insert_detection(obj, conf, time_str, img_path, source):
 def get_logs():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-
     cursor.execute("SELECT * FROM detections ORDER BY id DESC")
     rows = cursor.fetchall()
-
     conn.close()
     return rows
 
@@ -112,13 +109,11 @@ def draw_boxes(frame, results):
 init_db()
 
 
-# 🏠 الصفحة الرئيسية
 @app.route("/")
 def home():
     return render_template("index.html")
 
 
-# 📊 Logs
 @app.route("/logs")
 def logs():
     data = get_logs()
@@ -132,18 +127,23 @@ def upload_video():
 
     filename = str(int(time.time())) + "_" + file.filename
     input_path = os.path.join(UPLOAD_FOLDER, filename)
-    output_path = os.path.join(RESULT_FOLDER, "out_" + filename)
+
+    # 🔥 استخدم AVI (يحل مشكلة العرض)
+    output_filename = "out_" + filename + ".avi"
+    output_path = os.path.join(RESULT_FOLDER, output_filename)
 
     file.save(input_path)
 
     cap = cv2.VideoCapture(input_path)
+
+    if not cap.isOpened():
+        return "Video error"
+
     width = int(cap.get(3))
     height = int(cap.get(4))
 
-    out = cv2.VideoWriter(output_path,
-                          cv2.VideoWriter_fourcc(*"mp4v"),
-                          25,
-                          (width, height))
+    fourcc = cv2.VideoWriter_fourcc(*"XVID")
+    out = cv2.VideoWriter(output_path, fourcc, 25, (width, height))
 
     last_saved = 0
 
@@ -152,7 +152,7 @@ def upload_video():
         if not ret:
             break
 
-        results = model(frame, conf=0.3)
+        results = model(frame, conf=0.3, imgsz=320)
         annotated, detections = draw_boxes(frame, results)
 
         for name, conf in detections:
@@ -179,12 +179,14 @@ def upload_video():
     cap.release()
     out.release()
 
-    return render_template("index.html",
-                           uploaded_video="/" + input_path,
-                           result_video="/" + output_path)
+    return render_template(
+        "index.html",
+        uploaded_video="/" + input_path,
+        result_video="/" + output_path
+    )
 
 
-# 📡 بث مباشر
+# 📡 لايف
 @app.route("/process_frame", methods=["POST"])
 def process_frame():
     global last_saved_time_live
@@ -194,7 +196,7 @@ def process_frame():
     np_img = np.frombuffer(img, np.uint8)
     frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
 
-    results = model(frame, conf=0.3)
+    results = model(frame, conf=0.3, imgsz=320)
     annotated, detections = draw_boxes(frame, results)
 
     for name, conf in detections:
