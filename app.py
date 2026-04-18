@@ -10,6 +10,8 @@ from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from ultralytics import YOLO
 import gdown
+    import subprocess
+
 
 app = Flask(__name__)
 
@@ -201,6 +203,16 @@ def upload_video():
     cap.release()
     out.release()
 
+
+final_output_path = temp_output_path.replace(".mp4", "_final.mp4")
+
+subprocess.call(
+    f'ffmpeg -y -i "{temp_output_path}" -c:v libx264 -preset ultrafast -crf 23 -pix_fmt yuv420p "{final_output_path}"',
+    shell=True
+)
+
+# استخدم الفيديو الجديد بدل القديم
+output_video_path = final_output_path
     if os.path.exists(final_output_path):
         os.remove(final_output_path)
 
