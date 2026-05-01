@@ -22,7 +22,6 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
 os.makedirs(SNAPSHOT_FOLDER, exist_ok=True)
 
-# 🔥 رابط الموديل
 MODEL_URL = "https://drive.google.com/uc?id=1Bd0EvtNsagapzoDQ1zMPKePceyjlJ6oJ"
 
 if not os.path.exists("best.pt"):
@@ -30,15 +29,12 @@ if not os.path.exists("best.pt"):
     gdown.download(MODEL_URL, "best.pt", quiet=False)
 
 model = YOLO("best.pt")
-
 last_saved_time_live = 0
 
 
-# ================= DATABASE =================
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS detections (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,7 +45,6 @@ def init_db():
         source TEXT
     )
     """)
-
     conn.commit()
     conn.close()
 
@@ -57,12 +52,10 @@ def init_db():
 def insert_detection(obj, conf, time_str, img_path, source):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-
     cursor.execute("""
     INSERT INTO detections (object_type, confidence, detected_at, image_path, source)
     VALUES (?, ?, ?, ?, ?)
     """, (obj, conf, time_str, img_path, source))
-
     conn.commit()
     conn.close()
 
@@ -76,7 +69,6 @@ def get_logs():
     return rows
 
 
-# ================= DRAW =================
 def draw_boxes(frame, results):
     annotated = frame.copy()
     detections = []
@@ -98,11 +90,16 @@ def draw_boxes(frame, results):
         else:
             continue
 
-        label = f"{name} {conf:.2f}"
-
         cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(annotated, label, (x1, y1 - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        cv2.putText(
+            annotated,
+            f"{name} {conf:.2f}",
+            (x1, max(y1 - 10, 20)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            color,
+            2
+        )
 
         detections.append((name, conf))
 
@@ -112,10 +109,15 @@ def draw_boxes(frame, results):
 init_db()
 
 
-# ================= ROUTES =================
 @app.route("/")
 def home():
     return render_template("index.html")
+
+
+@app.route("/logs")
+def logs():
+    data = get_logs()
+    return render_template("logs.html", detections=data)
 
 
 @app.route("/upload_video", methods=["POST"])
@@ -142,9 +144,10 @@ def upload_video():
     if not cap.isOpened():
         return "Video error"
 
-    width = int(cap.get(3))
-    height = int(cap.get(4))
-    fps = cap.get(5)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+
     if fps <= 0:
         fps = 25
 
@@ -155,19 +158,39 @@ def upload_video():
         (width, height)
     )
 
+    last_saved = 0
+
     while True:
         ret, frame = cap.read()
         if not ret:
             break
 
         results = model(frame, conf=0.3, imgsz=320, verbose=False)
-        annotated, _ = draw_boxes(frame, results)
+        annotated, detections = draw_boxes(frame, results)
+
+        for name, conf in detections:
+            if name == "drone":
+                if time.time() - last_saved > 5:
+                    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                    img_path = os.path.join(SNAPSHOT_FOLDER, f"drone_{ts}.jpg")
+                    cv2.imwrite(img_path, annotated)
+
+                    insert_detection(
+                        "drone",
+                        conf,
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        img_path,
+                        "upload"
+                    )
+
+                    last_saved = time.time()
+                break
+
         out.write(annotated)
 
     cap.release()
     out.release()
 
-    # 🔥 تحويل الفيديو (أهم جزء)
     cmd = [
         "ffmpeg",
         "-y",
@@ -182,12 +205,14 @@ def upload_video():
 
     result = subprocess.run(cmd, capture_output=True, text=True)
 
-    print("FFMPEG:", result.stderr)
+    print("FFMPEG RETURN CODE:", result.returncode)
+    print("FFMPEG STDERR:", result.stderr)
 
     if result.returncode != 0:
-        return f"FFmpeg error:\n{result.stderr}"
+        return f"FFmpeg error:\n{result.stderr}", 500
 
-    os.remove(temp_output)
+    if os.path.exists(temp_output):
+        os.remove(temp_output)
 
     return render_template(
         "index.html",
@@ -196,47 +221,59 @@ def upload_video():
     )
 
 
-# ================= LIVE =================
 @app.route("/process_frame", methods=["POST"])
 def process_frame():
     global last_saved_time_live
 
-    data = request.get_json()
-    image_data = data["image"]
+    try:
+        data = request.get_json()
 
-    image_bytes = base64.b64decode(image_data.split(",")[1])
-    np_img = np.frombuffer(image_bytes, np.uint8)
-    frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+        if not data or "image" not in data:
+            return jsonify({"error": "No image received"}), 400
 
-    results = model(frame, conf=0.3, imgsz=320, verbose=False)
-    annotated, _ = draw_boxes(frame, results)
+        image_data = data["image"]
 
-    _, buffer = cv2.imencode(".jpg", annotated)
-    return jsonify({"image": base64.b64encode(buffer).decode()})
+        if "," in image_data:
+            image_data = image_data.split(",")[1]
 
-@app.route("/process_frame", methods=["POST"])
-def process_frame():
-    data = request.get_json()
+        image_bytes = base64.b64decode(image_data)
+        np_img = np.frombuffer(image_bytes, np.uint8)
+        frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
 
-    if not data or "image" not in data:
-        return jsonify({"error": "No image received"}), 400
+        if frame is None:
+            return jsonify({"error": "Invalid frame"}), 400
 
-    image_data = data["image"]
-    image_bytes = base64.b64decode(image_data.split(",")[1])
-    np_img = np.frombuffer(image_bytes, np.uint8)
-    frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+        results = model(frame, conf=0.3, imgsz=320, verbose=False)
+        annotated, detections = draw_boxes(frame, results)
 
-    if frame is None:
-        return jsonify({"error": "Invalid frame"}), 400
+        for name, conf in detections:
+            if name == "drone":
+                if time.time() - last_saved_time_live > 5:
+                    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                    img_path = os.path.join(SNAPSHOT_FOLDER, f"live_{ts}.jpg")
+                    cv2.imwrite(img_path, annotated)
 
-    results = model(frame, conf=0.3, imgsz=320, verbose=False)
-    annotated, _ = draw_boxes(frame, results)
+                    insert_detection(
+                        "drone",
+                        conf,
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        img_path,
+                        "live"
+                    )
 
-    _, buffer = cv2.imencode(".jpg", annotated)
-    encoded = base64.b64encode(buffer).decode("utf-8")
+                    last_saved_time_live = time.time()
+                break
 
-    return jsonify({"image": encoded}) 
-    
+        _, buffer = cv2.imencode(".jpg", annotated)
+        encoded = base64.b64encode(buffer).decode("utf-8")
+
+        return jsonify({"image": encoded})
+
+    except Exception as e:
+        print("LIVE ERROR:", str(e))
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/static/<path:path>")
 def send_static(path):
     return send_from_directory("static", path)
