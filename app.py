@@ -173,6 +173,7 @@ def upload_video():
                 ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
                 img_path = os.path.join(SNAPSHOT_FOLDER, f"drone_{ts}.jpg")
                 cv2.imwrite(img_path, annotated)
+
                 insert_detection(
                     "drone",
                     conf,
@@ -180,6 +181,7 @@ def upload_video():
                     img_path,
                     "upload"
                 )
+
                 last_saved_upload = time.time()
                 break
 
@@ -201,8 +203,6 @@ def upload_video():
     ]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
-    print("FFMPEG RETURN CODE:", result.returncode)
-    print("FFMPEG STDERR:", result.stderr)
 
     if result.returncode != 0:
         return f"FFmpeg error:\n{result.stderr}", 500
@@ -217,7 +217,6 @@ def upload_video():
     )
 
 
-# هذا كود اللايف القديم الشغال
 @app.route("/process_frame", methods=["POST"])
 def process_frame():
     global last_saved_time_live
@@ -237,6 +236,7 @@ def process_frame():
                 ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
                 img_path = os.path.join(SNAPSHOT_FOLDER, f"live_{ts}.jpg")
                 cv2.imwrite(img_path, annotated)
+
                 insert_detection(
                     "drone",
                     conf,
@@ -244,6 +244,7 @@ def process_frame():
                     img_path,
                     "live"
                 )
+
                 last_saved_time_live = time.time()
             break
 
@@ -252,6 +253,7 @@ def process_frame():
     return jsonify({
         "image": base64.b64encode(buffer).decode()
     })
+
 
 @app.route("/static/<path:path>")
 def send_static(path):
