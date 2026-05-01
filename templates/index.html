@@ -57,48 +57,82 @@
     <img id="output">
     <canvas id="canvas"></canvas>
 </div>
-
 <script>
 let video = document.getElementById("video");
 let canvas = document.getElementById("canvas");
 let output = document.getElementById("output");
+let statusBox = document.getElementById("cameraStatus");
 let ctx = canvas.getContext("2d");
 
-let stream;
-let interval;
+let stream = null;
+let intervalId = null;
 
 async function startCamera() {
-    stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    video.srcObject = stream;
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+        });
 
-    interval = setInterval(sendFrame, 1000);
-}
+        video.srcObject = stream;
+        statusBox.innerText = "Camera started...";
 
-function stopCamera() {
-    clearInterval(interval);
+        if (intervalId) clearInterval(intervalId);
 
-    if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+        intervalId = setInterval(sendFrame, 800); // أسرع شوي
+    } catch (err) {
+        console.error(err);
+        statusBox.innerText = "Camera error!";
     }
 }
 
+function stopCamera() {
+    if (intervalId) clearInterval(intervalId);
+
+    if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+    }
+
+    video.srcObject = null;
+    output.src = "";
+    statusBox.innerText = "Stopped";
+}
+
 async function sendFrame() {
+    if (!video.videoWidth) return;
+
     canvas.width = 320;
     canvas.height = 240;
 
     ctx.drawImage(video, 0, 0, 320, 240);
 
-    let data = canvas.toDataURL("image/jpeg", 0.4);
+    let data = canvas.toDataURL("image/jpeg", 0.5);
 
-    let response = await fetch("/process_frame", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: data })
-    });
+    try {
+        let response = await fetch("/process_frame", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image: data })
+        });
 
-    let result = await response.json();
+        if (!response.ok) {
+            throw new Error("Server error: " + response.status);
+        }
 
-    output.src = "data:image/jpeg;base64," + result.image;
+        let result = await response.json();
+
+        if (result.image) {
+            output.src = "data:image/jpeg;base64," + result.image;
+            statusBox.innerText = "Live running...";
+        } else {
+            statusBox.innerText = "No image returned";
+        }
+
+    } catch (err) {
+        console.error("ERROR:", err);
+        statusBox.innerText = "Live detection error";
+    }
 }
 </script>
 
