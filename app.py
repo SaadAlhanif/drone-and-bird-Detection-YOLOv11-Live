@@ -214,7 +214,29 @@ def process_frame():
     _, buffer = cv2.imencode(".jpg", annotated)
     return jsonify({"image": base64.b64encode(buffer).decode()})
 
+@app.route("/process_frame", methods=["POST"])
+def process_frame():
+    data = request.get_json()
 
+    if not data or "image" not in data:
+        return jsonify({"error": "No image received"}), 400
+
+    image_data = data["image"]
+    image_bytes = base64.b64decode(image_data.split(",")[1])
+    np_img = np.frombuffer(image_bytes, np.uint8)
+    frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+
+    if frame is None:
+        return jsonify({"error": "Invalid frame"}), 400
+
+    results = model(frame, conf=0.3, imgsz=320, verbose=False)
+    annotated, _ = draw_boxes(frame, results)
+
+    _, buffer = cv2.imencode(".jpg", annotated)
+    encoded = base64.b64encode(buffer).decode("utf-8")
+
+    return jsonify({"image": encoded}) 
+    
 @app.route("/static/<path:path>")
 def send_static(path):
     return send_from_directory("static", path)
