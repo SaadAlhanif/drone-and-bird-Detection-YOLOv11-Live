@@ -147,7 +147,6 @@ def upload_video():
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS)
-
     if fps <= 0:
         fps = 25
 
@@ -173,7 +172,6 @@ def upload_video():
                 ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
                 img_path = os.path.join(SNAPSHOT_FOLDER, f"drone_{ts}.jpg")
                 cv2.imwrite(img_path, annotated)
-
                 insert_detection(
                     "drone",
                     conf,
@@ -181,7 +179,6 @@ def upload_video():
                     img_path,
                     "upload"
                 )
-
                 last_saved_upload = time.time()
                 break
 
@@ -236,7 +233,6 @@ def process_frame():
                 ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
                 img_path = os.path.join(SNAPSHOT_FOLDER, f"live_{ts}.jpg")
                 cv2.imwrite(img_path, annotated)
-
                 insert_detection(
                     "drone",
                     conf,
@@ -244,7 +240,6 @@ def process_frame():
                     img_path,
                     "live"
                 )
-
                 last_saved_time_live = time.time()
             break
 
