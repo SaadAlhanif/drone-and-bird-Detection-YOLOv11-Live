@@ -158,7 +158,7 @@ def upload_video():
         (width, height)
     )
 
-    last_saved = 0
+    last_saved_upload = 0
 
     while True:
         ret, frame = cap.read()
@@ -169,21 +169,18 @@ def upload_video():
         annotated, detections = draw_boxes(frame, results)
 
         for name, conf in detections:
-            if name == "drone":
-                if time.time() - last_saved > 5:
-                    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                    img_path = os.path.join(SNAPSHOT_FOLDER, f"drone_{ts}.jpg")
-                    cv2.imwrite(img_path, annotated)
-
-                    insert_detection(
-                        "drone",
-                        conf,
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        img_path,
-                        "upload"
-                    )
-
-                    last_saved = time.time()
+            if name == "drone" and time.time() - last_saved_upload > 5:
+                ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                img_path = os.path.join(SNAPSHOT_FOLDER, f"drone_{ts}.jpg")
+                cv2.imwrite(img_path, annotated)
+                insert_detection(
+                    "drone",
+                    conf,
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    img_path,
+                    "upload"
+                )
+                last_saved_upload = time.time()
                 break
 
         out.write(annotated)
@@ -204,7 +201,6 @@ def upload_video():
     ]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
-
     print("FFMPEG RETURN CODE:", result.returncode)
     print("FFMPEG STDERR:", result.stderr)
 
@@ -221,57 +217,41 @@ def upload_video():
     )
 
 
+# هذا كود اللايف القديم الشغال
 @app.route("/process_frame", methods=["POST"])
 def process_frame():
     global last_saved_time_live
 
-    try:
-        data = request.get_json()
+    data = request.json["image"]
 
-        if not data or "image" not in data:
-            return jsonify({"error": "No image received"}), 400
+    img = base64.b64decode(data.split(",")[1])
+    np_img = np.frombuffer(img, np.uint8)
+    frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
 
-        image_data = data["image"]
+    results = model(frame, conf=0.3, imgsz=320, verbose=False)
+    annotated, detections = draw_boxes(frame, results)
 
-        if "," in image_data:
-            image_data = image_data.split(",")[1]
+    for name, conf in detections:
+        if name == "drone":
+            if time.time() - last_saved_time_live > 5:
+                ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                img_path = os.path.join(SNAPSHOT_FOLDER, f"live_{ts}.jpg")
+                cv2.imwrite(img_path, annotated)
+                insert_detection(
+                    "drone",
+                    conf,
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    img_path,
+                    "live"
+                )
+                last_saved_time_live = time.time()
+            break
 
-        image_bytes = base64.b64decode(image_data)
-        np_img = np.frombuffer(image_bytes, np.uint8)
-        frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+    _, buffer = cv2.imencode(".jpg", annotated)
 
-        if frame is None:
-            return jsonify({"error": "Invalid frame"}), 400
-
-        results = model(frame, conf=0.3, imgsz=320, verbose=False)
-        annotated, detections = draw_boxes(frame, results)
-
-        for name, conf in detections:
-            if name == "drone":
-                if time.time() - last_saved_time_live > 5:
-                    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                    img_path = os.path.join(SNAPSHOT_FOLDER, f"live_{ts}.jpg")
-                    cv2.imwrite(img_path, annotated)
-
-                    insert_detection(
-                        "drone",
-                        conf,
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        img_path,
-                        "live"
-                    )
-
-                    last_saved_time_live = time.time()
-                break
-
-        _, buffer = cv2.imencode(".jpg", annotated)
-        encoded = base64.b64encode(buffer).decode("utf-8")
-
-        return jsonify({"image": encoded})
-
-    except Exception as e:
-        print("LIVE ERROR:", str(e))
-        return jsonify({"error": str(e)}), 500
+    return jsonify({
+        "image": base64.b64encode(buffer).decode()
+    })
 
 
 @app.route("/static/<path:path>")
