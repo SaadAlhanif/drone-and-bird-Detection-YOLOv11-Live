@@ -22,10 +22,11 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
 os.makedirs(SNAPSHOT_FOLDER, exist_ok=True)
 
+# 🔥 رابط الموديل
 MODEL_URL = "https://drive.google.com/uc?id=1Bd0EvtNsagapzoDQ1zMPKePceyjlJ6oJ"
 
 if not os.path.exists("best.pt"):
-    print("Downloading model...")
+    print("Downloading model from Google Drive...")
     gdown.download(MODEL_URL, "best.pt", quiet=False)
 
 model = YOLO("best.pt")
@@ -33,6 +34,7 @@ model = YOLO("best.pt")
 last_saved_time_live = 0
 
 
+# ================= DATABASE =================
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -65,6 +67,16 @@ def insert_detection(obj, conf, time_str, img_path, source):
     conn.close()
 
 
+def get_logs():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM detections ORDER BY id DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+# ================= DRAW =================
 def draw_boxes(frame, results):
     annotated = frame.copy()
     detections = []
@@ -89,7 +101,7 @@ def draw_boxes(frame, results):
         label = f"{name} {conf:.2f}"
 
         cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(annotated, label, (x1, max(y1 - 10, 20)),
+        cv2.putText(annotated, label, (x1, y1 - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
         detections.append((name, conf))
@@ -100,6 +112,7 @@ def draw_boxes(frame, results):
 init_db()
 
 
+# ================= ROUTES =================
 @app.route("/")
 def home():
     return render_template("index.html")
@@ -111,6 +124,8 @@ def upload_video():
         return "No video uploaded", 400
 
     file = request.files["video"]
+    if file.filename == "":
+        return "No selected video", 400
 
     safe_name = re.sub(r"\s+", "_", file.filename)
     safe_name = re.sub(r"[^a-zA-Z0-9_.-]", "", safe_name)
@@ -118,13 +133,8 @@ def upload_video():
     filename = f"{int(time.time())}_{safe_name}"
     input_path = os.path.join(UPLOAD_FOLDER, filename)
 
-    temp_output_path = os.path.join(
-        RESULT_FOLDER,
-        f"temp_{os.path.splitext(filename)[0]}.avi"
-    )
-
-    final_output_filename = f"out_{os.path.splitext(filename)[0]}.mp4"
-    final_output_path = os.path.join(RESULT_FOLDER, final_output_filename)
+    temp_output = os.path.join(RESULT_FOLDER, f"temp_{filename}.avi")
+    final_output = os.path.join(RESULT_FOLDER, f"out_{filename}.mp4")
 
     file.save(input_path)
 
@@ -134,10 +144,12 @@ def upload_video():
 
     width = int(cap.get(3))
     height = int(cap.get(4))
-    fps = cap.get(cv2.CAP_PROP_FPS) or 25
+    fps = cap.get(5)
+    if fps <= 0:
+        fps = 25
 
     out = cv2.VideoWriter(
-        temp_output_path,
+        temp_output,
         cv2.VideoWriter_fourcc(*"XVID"),
         fps,
         (width, height)
@@ -150,35 +162,57 @@ def upload_video():
 
         results = model(frame, conf=0.3, imgsz=320, verbose=False)
         annotated, _ = draw_boxes(frame, results)
-
         out.write(annotated)
 
     cap.release()
     out.release()
 
-    # 🔥 التحويل الصحيح
-    result = subprocess.run([
+    # 🔥 تحويل الفيديو (أهم جزء)
+    cmd = [
         "ffmpeg",
         "-y",
-        "-i", temp_output_path,
+        "-i", temp_output,
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-crf", "23",
-        "-movflags", "+faststart",
         "-pix_fmt", "yuv420p",
-        final_output_path
-    ], capture_output=True, text=True)
+        "-movflags", "+faststart",
+        final_output
+    ]
 
-    print("FFMPEG:", result.returncode)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    print("FFMPEG:", result.stderr)
 
     if result.returncode != 0:
         return f"FFmpeg error:\n{result.stderr}"
 
+    os.remove(temp_output)
+
     return render_template(
         "index.html",
         uploaded_video=input_path.replace("static/", ""),
-        result_video=final_output_path.replace("static/", "")
+        result_video=final_output.replace("static/", "")
     )
+
+
+# ================= LIVE =================
+@app.route("/process_frame", methods=["POST"])
+def process_frame():
+    global last_saved_time_live
+
+    data = request.get_json()
+    image_data = data["image"]
+
+    image_bytes = base64.b64decode(image_data.split(",")[1])
+    np_img = np.frombuffer(image_bytes, np.uint8)
+    frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+
+    results = model(frame, conf=0.3, imgsz=320, verbose=False)
+    annotated, _ = draw_boxes(frame, results)
+
+    _, buffer = cv2.imencode(".jpg", annotated)
+    return jsonify({"image": base64.b64encode(buffer).decode()})
 
 
 @app.route("/static/<path:path>")
