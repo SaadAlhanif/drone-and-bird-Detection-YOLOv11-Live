@@ -4,25 +4,74 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Drone Detection System</title>
+
     <style>
-        body { font-family: Arial; background: #f4f6f8; text-align: center; }
-        .container { width: 90%; max-width: 1000px; margin: 30px auto; background: white; padding: 20px; border-radius: 12px; }
-        button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 8px; margin: 10px; cursor: pointer; }
-        video, img { width: 100%; max-width: 600px; margin-top: 10px; border-radius: 10px; }
-        a { display: inline-block; margin-top: 10px; padding: 10px; background: #28a745; color: white; border-radius: 8px; text-decoration: none; }
-        canvas { display: none; }
+        body {
+            font-family: Arial;
+            background: #f4f6f8;
+            text-align: center;
+        }
+
+        .container {
+            width: 90%;
+            max-width: 1000px;
+            margin: 30px auto;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            margin: 10px;
+            cursor: pointer;
+        }
+
+        video, img {
+            width: 100%;
+            max-width: 600px;
+            margin-top: 10px;
+            border-radius: 10px;
+        }
+
+        a {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 10px;
+            background: #28a745;
+            color: white;
+            border-radius: 8px;
+            text-decoration: none;
+        }
+
+        canvas {
+            display: none;
+        }
+
+        #cameraStatus {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #333;
+        }
     </style>
 </head>
+
 <body>
 
 <div class="container">
+
     <h1>🛸 Drone Detection System</h1>
 
     <a href="/logs">View Drone Logs</a>
 
     <h2>Upload Video</h2>
+
     <form action="/upload_video" method="post" enctype="multipart/form-data">
-        <input type="file" name="video" required>
+        <input type="file" name="video" accept="video/*" required>
         <br>
         <button type="submit">Upload</button>
     </form>
@@ -36,14 +85,19 @@
 
     {% if result_video %}
     <h3>🎯 Detection Result</h3>
+
     <video controls width="600">
         <source src="{{ url_for('static', filename=result_video) }}" type="video/mp4">
     </video>
+
     <br>
     <a href="{{ url_for('static', filename=result_video) }}" target="_blank">
         🔗 Open Video Directly
     </a>
-    <p style="color:gray;">Path: {{ url_for('static', filename=result_video) }}</p>
+
+    <p style="color:gray;">
+        Path: {{ url_for('static', filename=result_video) }}
+    </p>
     {% endif %}
 
     <h2>Live Camera</h2>
@@ -51,12 +105,14 @@
     <button onclick="startCamera()">Start Camera</button>
     <button onclick="stopCamera()">Stop</button>
 
-    <br>
+    <div id="cameraStatus">Camera is stopped.</div>
 
-    <video id="video" autoplay muted></video>
+    <video id="video" autoplay playsinline muted></video>
     <img id="output">
     <canvas id="canvas"></canvas>
+
 </div>
+
 <script>
 let video = document.getElementById("video");
 let canvas = document.getElementById("canvas");
@@ -65,73 +121,58 @@ let statusBox = document.getElementById("cameraStatus");
 let ctx = canvas.getContext("2d");
 
 let stream = null;
-let intervalId = null;
+let interval = null;
 
 async function startCamera() {
-    try {
-        stream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: false
-        });
+    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    video.srcObject = stream;
 
-        video.srcObject = stream;
-        statusBox.innerText = "Camera started...";
+    statusBox.innerText = "Camera started.";
 
-        if (intervalId) clearInterval(intervalId);
-
-        intervalId = setInterval(sendFrame, 800); // أسرع شوي
-    } catch (err) {
-        console.error(err);
-        statusBox.innerText = "Camera error!";
+    if (interval) {
+        clearInterval(interval);
     }
+
+    interval = setInterval(sendFrame, 1000);
 }
 
 function stopCamera() {
-    if (intervalId) clearInterval(intervalId);
+    if (interval) {
+        clearInterval(interval);
+    }
 
     if (stream) {
         stream.getTracks().forEach(track => track.stop());
-        stream = null;
     }
 
     video.srcObject = null;
     output.src = "";
-    statusBox.innerText = "Stopped";
+    statusBox.innerText = "Camera is stopped.";
 }
 
 async function sendFrame() {
-    if (!video.videoWidth) return;
+    if (!video.videoWidth || !video.videoHeight) {
+        return;
+    }
 
     canvas.width = 320;
     canvas.height = 240;
 
     ctx.drawImage(video, 0, 0, 320, 240);
 
-    let data = canvas.toDataURL("image/jpeg", 0.5);
+    let data = canvas.toDataURL("image/jpeg", 0.4);
 
-    try {
-        let response = await fetch("/process_frame", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ image: data })
-        });
+    let response = await fetch("/process_frame", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: data })
+    });
 
-        if (!response.ok) {
-            throw new Error("Server error: " + response.status);
-        }
+    let result = await response.json();
 
-        let result = await response.json();
-
-        if (result.image) {
-            output.src = "data:image/jpeg;base64," + result.image;
-            statusBox.innerText = "Live running...";
-        } else {
-            statusBox.innerText = "No image returned";
-        }
-
-    } catch (err) {
-        console.error("ERROR:", err);
-        statusBox.innerText = "Live detection error";
+    if (result.image) {
+        output.src = "data:image/jpeg;base64," + result.image;
+        statusBox.innerText = "Live detection running.";
     }
 }
 </script>
