@@ -24,19 +24,10 @@
             box-shadow: 0 0 12px rgba(0,0,0,0.1);
         }
 
-        h1 {
-            margin-bottom: 10px;
-        }
-
         .section {
             margin-top: 30px;
             padding: 20px;
             border-top: 1px solid #ddd;
-        }
-
-        p.note {
-            color: #555;
-            font-size: 14px;
         }
 
         button, a.btn {
@@ -52,10 +43,6 @@
             font-size: 15px;
         }
 
-        button:hover, a.btn:hover {
-            background: #0056b3;
-        }
-
         video, img {
             width: 100%;
             max-width: 600px;
@@ -66,10 +53,6 @@
 
         canvas {
             display: none;
-        }
-
-        input[type="file"] {
-            margin: 10px 0;
         }
 
         .row {
@@ -89,7 +72,6 @@
                 flex-direction: row;
                 align-items: flex-start;
             }
-
             .col {
                 width: 48%;
             }
@@ -108,11 +90,12 @@
         }
     </style>
 </head>
+
 <body>
 
 <div class="container">
     <h1>🛸 Drone Detection System</h1>
-    <p class="note">Upload video or use live camera detection.</p>
+    <p>Upload video or use live camera detection.</p>
 
     <a class="btn" href="/logs">View Drone Logs</a>
 
@@ -146,7 +129,9 @@
                 </video>
 
                 <br>
-                <a class="btn" href="{{ url_for('static', filename=result_video) }}" target="_blank">🔗 Open Video Directly</a>
+                <a class="btn" href="{{ url_for('static', filename=result_video) }}" target="_blank">
+                    🔗 Open Video Directly
+                </a>
 
                 <p class="path-text">Path: {{ url_for('static', filename=result_video) }}</p>
             </div>
@@ -157,7 +142,7 @@
 
     <div class="section">
         <h2>Live Camera</h2>
-        <p class="note">Open from phone or laptop browser, then allow camera access.</p>
+        <p>Open from phone or laptop browser, then allow camera access.</p>
 
         <button onclick="startCamera()">Start Camera</button>
         <button onclick="stopCamera()">Stop Camera</button>
@@ -177,88 +162,72 @@
         </div>
 
         <canvas id="canvas"></canvas>
-        <p class="note">Drone = red box, Bird = green box.</p>
+        <p>Drone = red box, Bird = green box.</p>
     </div>
 </div>
 
 <script>
-    let video = document.getElementById("video");
-    let canvas = document.getElementById("canvas");
-    let output = document.getElementById("output");
-    let statusBox = document.getElementById("cameraStatus");
-    let ctx = canvas.getContext("2d");
+let video = document.getElementById("video");
+let canvas = document.getElementById("canvas");
+let output = document.getElementById("output");
+let statusBox = document.getElementById("cameraStatus");
+let ctx = canvas.getContext("2d");
 
-    let stream = null;
-    let intervalId = null;
+let stream = null;
+let intervalId = null;
 
-    async function startCamera() {
-        try {
-            stream = await navigator.mediaDevices.getUserMedia({
-                video: true,
-                audio: false
-            });
+async function startCamera() {
+    stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false
+    });
 
-            video.srcObject = stream;
-            statusBox.innerText = "Camera started. Live detection is running...";
+    video.srcObject = stream;
+    statusBox.innerText = "Camera started.";
 
-            if (intervalId) {
-                clearInterval(intervalId);
-            }
-
-            intervalId = setInterval(sendFrame, 1000);
-        } catch (error) {
-            statusBox.innerText = "Could not access camera.";
-            alert("Could not access camera: " + error);
-        }
+    if (intervalId) {
+        clearInterval(intervalId);
     }
 
-    function stopCamera() {
-        if (intervalId) {
-            clearInterval(intervalId);
-            intervalId = null;
-        }
+    intervalId = setInterval(sendFrame, 1000);
+}
 
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-            stream = null;
-        }
+function stopCamera() {
+    clearInterval(intervalId);
 
-        video.srcObject = null;
-        output.src = "";
-        statusBox.innerText = "Camera is stopped.";
+    if (stream) {
+        stream.getTracks().forEach(track => track.stop());
     }
 
-    async function sendFrame() {
-        if (!video.videoWidth || !video.videoHeight) {
-            return;
-        }
+    video.srcObject = null;
+    output.src = "";
+    statusBox.innerText = "Camera is stopped.";
+}
 
-        canvas.width = 320;
-        canvas.height = 240;
-
-        ctx.drawImage(video, 0, 0, 320, 240);
-
-        let data = canvas.toDataURL("image/jpeg", 0.4);
-
-        try {
-            let response = await fetch("/process_frame", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ image: data })
-            });
-
-            let result = await response.json();
-
-            if (result.image) {
-                output.src = "data:image/jpeg;base64," + result.image;
-            }
-        } catch (error) {
-            console.error("Live detection error:", error);
-            statusBox.innerText = "Live detection error.";
-        }
+async function sendFrame() {
+    if (!video.videoWidth || !video.videoHeight) {
+        return;
     }
+
+    canvas.width = 320;
+    canvas.height = 240;
+
+    ctx.drawImage(video, 0, 0, 320, 240);
+
+    let data = canvas.toDataURL("image/jpeg", 0.4);
+
+    let response = await fetch("/process_frame", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ image: data })
+    });
+
+    let result = await response.json();
+
+    output.src = "data:image/jpeg;base64," + result.image;
+}
 </script>
 
 </body>
