@@ -64,7 +64,7 @@
 
 <div class="container">
 
-    <h1>🛸 Drone Detection System</h1>
+    <h1>Drone Detection System</h1>
 
     <a href="/logs">View Drone Logs</a>
 
@@ -170,12 +170,12 @@ async function sendFrame() {
 
     isProcessing = true;
 
-    canvas.width = 480;
-    canvas.height = 360;
+    canvas.width = 640;
+    canvas.height = 480;
 
-    ctx.drawImage(video, 0, 0, 480, 360);
+    ctx.drawImage(video, 0, 0, 640, 480);
 
-    let data = canvas.toDataURL("image/jpeg", 0.6);
+    let data = canvas.toDataURL("image/jpeg", 0.7);
 
     try {
         let response = await fetch("/process_frame", {
