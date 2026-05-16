@@ -164,7 +164,7 @@ def upload_video():
         if not ret:
             break
 
-        results = model(frame, conf=0.3, imgsz=320, verbose=False)
+        results = model(frame, conf=0.3, imgsz=416, verbose=False)
         annotated, detections = draw_boxes(frame, results)
 
         for name, conf in detections:
