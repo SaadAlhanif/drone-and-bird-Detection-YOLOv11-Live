@@ -1,4 +1,4 @@
-# 🛸 Drone and Bird Detection (YOLOv11) — Streamlit App
+#  Drone and Bird Detection (YOLOv11) — Streamlit App
 
 This project is a simple **Streamlit web app** that lets the user **upload a video** and runs **drone detection** using a trained **YOLOv11 (Ultralytics)** model.  
 The app outputs a new video with **bounding boxes + “Drone” label** drawn on detected objects.
