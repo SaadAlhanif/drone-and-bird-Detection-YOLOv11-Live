@@ -122,9 +122,17 @@ let ctx = canvas.getContext("2d");
 
 let stream = null;
 let interval = null;
+let isProcessing = false;
 
 async function startCamera() {
-    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+        },
+        audio: false
+    });
+
     video.srcObject = stream;
 
     statusBox.innerText = "Camera started.";
@@ -133,47 +141,61 @@ async function startCamera() {
         clearInterval(interval);
     }
 
-    interval = setInterval(sendFrame, 1000);
+    interval = setInterval(sendFrame, 300);
 }
 
 function stopCamera() {
     if (interval) {
         clearInterval(interval);
+        interval = null;
     }
 
     if (stream) {
         stream.getTracks().forEach(track => track.stop());
+        stream = null;
     }
 
+    isProcessing = false;
     video.srcObject = null;
     output.src = "";
     statusBox.innerText = "Camera is stopped.";
 }
 
 async function sendFrame() {
+    if (isProcessing) return;
+
     if (!video.videoWidth || !video.videoHeight) {
         return;
     }
 
-    canvas.width = 320;
-    canvas.height = 240;
+    isProcessing = true;
 
-    ctx.drawImage(video, 0, 0, 320, 240);
+    canvas.width = 640;
+    canvas.height = 360;
 
-    let data = canvas.toDataURL("image/jpeg", 0.4);
+    ctx.drawImage(video, 0, 0, 640, 360);
 
-    let response = await fetch("/process_frame", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: data })
-    });
+    let data = canvas.toDataURL("image/jpeg", 0.7);
 
-    let result = await response.json();
+    try {
+        let response = await fetch("/process_frame", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image: data })
+        });
 
-    if (result.image) {
-        output.src = "data:image/jpeg;base64," + result.image;
-        statusBox.innerText = "Live detection running.";
+        let result = await response.json();
+
+        if (result.image) {
+            output.src = "data:image/jpeg;base64," + result.image;
+            statusBox.innerText = "Live detection running.";
+        }
+    } catch (error) {
+        console.log(error);
+        statusBox.innerText = "Live detection error.";
     }
+
+    isProcessing = false;
 }
 </script>
 
