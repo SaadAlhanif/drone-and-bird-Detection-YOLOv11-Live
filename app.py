@@ -224,7 +224,7 @@ def process_frame():
     np_img = np.frombuffer(img, np.uint8)
     frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
 
-    results = model(frame, conf=0.3, imgsz=320, verbose=False)
+    results = model(frame, conf=0.3, imgsz=640, verbose=False)
     annotated, detections = draw_boxes(frame, results)
 
     for name, conf in detections:
